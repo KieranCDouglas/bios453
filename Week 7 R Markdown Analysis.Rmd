@@ -1,0 +1,99 @@
+---
+title: "Analysis of India DHS Data"
+author: "Paul Hsu"
+date: "1/30/2025"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message=FALSE,warning = FALSE)
+```
+```{r}
+library(haven)
+library(gtsummary)
+library(tidyverse)
+library(knitr)
+library(readr)
+dhs=read_csv("IAIR7EFL.csv")
+#View(dhs)
+#generate a subset of the data
+dhs.s=subset(dhs,select=c(v012,v155,v171a,v201,v437,v438,v445))
+rm(dhs) #delete dhs data frame from memory
+#relabel variables
+dhs.s$age=dhs.s$v012
+dhs.s$older=(dhs.s$age>30)+0
+dhs.s$older=factor(dhs.s$older,levels=c(0,1),labels = c("<=30 yo","> 30 yo"))
+dhs.s$literacy=dhs.s$v155
+dhs.s$literacy=factor(dhs.s$literacy,
+                      levels=seq(0,4),
+                      labels=c("Cannot read at all",
+                               "Able to read only parts of sentence",
+                               "Able to read whole sentence",
+                               "No card with required language",
+                               "Blind/visually impaired"))
+dhs.s$internet.use=(dhs.s$v171a==3)+0
+dhs.s$children.born=dhs.s$v201
+dhs.s$wt.kg=dhs.s$v437/10
+dhs.s$wt.kg[dhs.s$v437>2000]=NA
+dhs.s$ht.m=dhs.s$v438/1000
+dhs.s$ht.m[dhs.s$v438>2500]=NA
+dhs.s$bmi=dhs.s$v445/100
+dhs.s$bmi[dhs.s$v445>6000]=NA
+```
+
+# Table 1: Summary of participant characteristics by age group (<=30 vs. >30 years old)
+```{r}
+dem=subset(dhs.s,select=c(age,literacy,internet.use,children.born,wt.kg,ht.m,bmi,older))
+tbl_summary(dem,
+            label=list(age~"Age",
+                       literacy~"Literacy",
+                       internet.use~"Internet use",
+                       children.born~"# of children born",
+                       wt.kg~"Weight (kg)",
+                       ht.m~"Height (m)",
+                       bmi~"BMI"),
+                       by=older,# split table by group
+                       statistic=list(all_continuous()~"{mean}±{sd}"),
+                       digits = list(all_categorical() ~ c(0, 2),
+                                     all_continuous() ~ c(2, 2)),
+                       missing = "ifany", 
+                       missing_text=c("Missing")
+) %>%
+  add_overall()%>%
+add_p(test=list(all_categorical() ~ "chisq.test"),pvalue_fun = function(x) style_pvalue(x, digits = 2)) %>% # test for a difference between groups
+modify_header(label = "**Variable**") %>% # update the column header
+bold_labels()
+```
+
+\newpage
+# Figure 1: Bar plot for internet use by age group
+```{r}
+#frequency table: internet use by age group
+count=table(dhs.s$internet.use,dhs.s$older)
+
+#convert the above frequency table into column % (i.e. % with internet use by age group)
+prop=100*prop.table(count,margin=2)
+
+#bar plot for frequency of internet use by age group
+barplot(count,beside=TRUE,legend.text = rownames(count),col=c("blue","red"),ylab="Frequency")
+
+#bar plot for % of internet use by age group
+barplot(prop,beside=TRUE,legend.text = rownames(count),col=c("blue","red"),ylab="%")
+```
+
+\newpage
+# Figure 2: Box plot for BMI by age group
+```{r}
+ggplot(dhs.s,aes(x=older,y=bmi))+
+  geom_boxplot(color=c("red","blue"),fill=c("white","white"))+
+  labs(title="Boxplot for BMI by age",y="BMI",x="Age")
+```
+
+\newpage
+# Figure 3: Violin plot for BMI by age group
+```{r}
+ggplot(dhs.s,aes(x=older,y=bmi))+
+  geom_violin()+
+  stat_summary(fun.data="median_iqr",width=0.2,geom="crossbar")+ #add boxplot
+  labs(title="Boxplot for BMI by age",y="BMI",x="Age")
+```
