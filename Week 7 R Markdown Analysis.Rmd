@@ -14,6 +14,7 @@ library(gtsummary)
 library(tidyverse)
 library(knitr)
 library(readr)
+library(cards)
 dhs=read_csv("IAIR7EFL.csv")
 #View(dhs)
 #generate a subset of the data

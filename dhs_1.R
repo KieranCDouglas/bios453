@@ -1,11 +1,15 @@
 ### 453 initial code 
 ### Kieran Douglas
 
+# package instllation and data read-in
 install.packages("tidyverse")
+install.packages("gt")
 library(tidyverse)
+library(gt)
 
-dhs <- read_csv("")
+dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
 
+# data cleaning for relevancy 
 dhs_clean <- dhs %>% 
   select(m60_1, v481, m18_1, m19_1, m17_1, v214, v457) %>% 
   na.omit(dhs) %>% 
@@ -27,6 +31,17 @@ dhs_clean <- dhs %>%
     paradrug = as.factor(paradrug),
   )
 
+# missing data report 
+
+# concept map 
+
+# summary tables
+
+# graphical representation
+
+# summary/interpretation 
+
+# data analysis
 model1 <- lm(data = dhs_clean, sizechild~paradrug+insured+bwkg+csect+duration+anemia)
 summary(model1)
 #0.00017 pvalue for association between paradrug use during pregnancy and birthweight

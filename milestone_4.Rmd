@@ -1,0 +1,60 @@
+---
+title: "Milestone 4"
+output: pdf_document
+date: "2025-03-05"
+name: "Kieran Douglas"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install packages and data
+
+Installing important packages for the project and downloading the dataset
+
+```{r}
+install.packages("tidyverse")
+install.packages("gt")
+library(tidyverse)
+library(gt)
+
+dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
+
+```
+
+## 1) Description of data management utilized and cleaning
+
+As part of the data management process fo this project, I 
+
+```{r}
+dhs_clean <- dhs %>% 
+  select(m60_1, v481, m18_1, m19_1, m17_1, v214, v457) %>% 
+  na.omit(dhs) %>% 
+  rename(
+    paradrug = m60_1,
+    insured = v481,
+    sizechild = m18_1,
+    bwkg = m19_1,
+    csect = m17_1,
+    duration = v214,
+    anemia = v457
+  ) %>% 
+  filter(
+    paradrug!=8,
+    bwkg <5000,
+    sizechild!=8
+  ) %>% 
+  mutate(
+    paradrug = as.factor(paradrug),
+  )
+```
+
+## 2) Missing data report
+```{r}
+
+```
+
+## 3) Concept map
+![Alt text]('/Users/kieran/Downloads/Concept Map from Lucidchart.png')
+
