@@ -9,6 +9,7 @@ library(gt)
 
 dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
 
+
 # data cleaning for relevancy 
 dhs_clean <- dhs %>% 
   select(m60_1, v481, m18_1, m19_1, m17_1, v214, v457) %>% 

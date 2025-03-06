@@ -4,9 +4,10 @@ output: pdf_document
 date: "2025-03-05"
 name: "Kieran Douglas"
 ---
-
+# Setup
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+options(repos = c(CRAN = "https://cloud.r-project.org"))
 ```
 
 ## Install packages and data
@@ -14,23 +15,20 @@ knitr::opts_chunk$set(echo = TRUE)
 Installing important packages for the project and downloading the dataset
 
 ```{r}
-install.packages("tidyverse")
-install.packages("gt")
 library(tidyverse)
 library(gt)
-
+library(tinytex)
 dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
 
 ```
 
 ## 1) Description of data management utilized and cleaning
 
-As part of the data management process fo this project, I 
+As part of the data management process fo this project, I significantly reduced its size to include only variables that I believe are relevant for my research question. This includes all of the relevant variables, in addition to each confounder listed in my concept map (both primary and secondary). Once I had each of these variables selected, In went through and ensured that they were all formatted correctly for the types of regression I wanted to run during my analysis. I also made sure that certain items were filtered out. For example, some continuous reportings like birth weight in kg clearly contained severe misinputs. Since I am also only concerned with it as a numerical variable, I removed some of the categorical sections on the upper end like not weighed at birth, dont know, or missing. Additionally, I chose to adhere to UNICEF’s validity threshold: 250g ≤ birthweight ≤5,500g for a more realistic analysis. I also chose to keep variables like time pregnant and age numeric because that makes sense given what I am interested in exploring. Binary variables like whether or not someone took antiparasitics) were limited to only response values, as I am not interested in those who couldnt answer the question. This leaves us with a hefty 153,582 observations for analysis. 
 
 ```{r}
 dhs_clean <- dhs %>% 
-  select(m60_1, v481, m18_1, m19_1, m17_1, v214, v457) %>% 
-  na.omit(dhs) %>% 
+  select(m60_1, v481, m18_1, m19_1, m17_1, v214, v457, m15_1, v228, v208, v190a, v190, v149, v131, v024, v463aa, v501, v214, v447a) %>% 
   rename(
     paradrug = m60_1,
     insured = v481,
@@ -38,12 +36,38 @@ dhs_clean <- dhs %>%
     bwkg = m19_1,
     csect = m17_1,
     duration = v214,
-    anemia = v457
+    anemia = v457,
+    delivplace = m15_1,
+    termpreg = v228,
+    bpast5 = v208,
+    wind_urbrur = v190a,
+    wind = v190,
+    educ = v149,
+    ethnic = v131,
+    state = v024,
+    smokes = v463aa,
+    married = v501,
+    cur_preg_dur = v214,
+    age = v447a,
   ) %>% 
   filter(
     paradrug!=8,
-    bwkg <5000,
-    sizechild!=8
+    paradrug!=9,
+    bwkg <5501,
+    bwkg > 249,
+    bwkg != 9996,
+    bwkg != 9998,
+    bwkg != 9999,
+    sizechild!=8,
+    insured != 9,
+    sizechild != 9,
+    csect != 9,
+    anemia != 9,
+    termpreg != 9,
+    educ != 9,
+    smokes != 9,
+    married != 9,
+    age != 99,
   ) %>% 
   mutate(
     paradrug = as.factor(paradrug),
@@ -56,5 +80,20 @@ dhs_clean <- dhs %>%
 ```
 
 ## 3) Concept map
-![Alt text]('/Users/kieran/Downloads/Concept Map from Lucidchart.png')
+![Concept Map](/Users/kieran/Downloads/Concept Map from Lucidchart.png)
+
+## 4) Summary table of characteristics
+
+```{r}
+
+```
+
+## 5) Graphical representation of characteristics
+
+```{r}
+ggplot(data = dhs_clean, mapping = aes(x = sizechild, fill = paradrug)) +
+  geom_bar()
+```
+
+## 6) Summary and interpretation of characteristics
 
