@@ -1,7 +1,7 @@
 ---
 title: "Milestone 4"
 output: pdf_document
-date: "2025-03-05"
+date: "2025-03-06"
 name: "Kieran Douglas"
 ---
 # Setup
@@ -18,24 +18,25 @@ Installing important packages for the project and downloading the dataset
 library(tidyverse)
 library(gt)
 library(tinytex)
+library(naniar)
+library(ggthemes)
 dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
 
 ```
 
 ## 1) Description of data management utilized and cleaning
 
-As part of the data management process fo this project, I significantly reduced its size to include only variables that I believe are relevant for my research question. This includes all of the relevant variables, in addition to each confounder listed in my concept map (both primary and secondary). Once I had each of these variables selected, In went through and ensured that they were all formatted correctly for the types of regression I wanted to run during my analysis. I also made sure that certain items were filtered out. For example, some continuous reportings like birth weight in kg clearly contained severe misinputs. Since I am also only concerned with it as a numerical variable, I removed some of the categorical sections on the upper end like not weighed at birth, dont know, or missing. Additionally, I chose to adhere to UNICEF’s validity threshold: 250g ≤ birthweight ≤5,500g for a more realistic analysis. I also chose to keep variables like time pregnant and age numeric because that makes sense given what I am interested in exploring. Binary variables like whether or not someone took antiparasitics) were limited to only response values, as I am not interested in those who couldnt answer the question. This leaves us with a hefty 153,582 observations for analysis. 
+As part of the data management process fo this project, I significantly reduced its size to include only variables that I believe are relevant for my research question. This includes all of the relevant variables, in addition to each confounder listed in my concept map (both primary and secondary). Once I had each of these variables selected, In went through and ensured that they were all formatted correctly for the types of regression I wanted to run during my analysis. I also made sure that certain items were filtered out. For example, some continuous reportings like birth weight in kg clearly contained severe misinputs. Since I am also only concerned with it as a numerical variable, I removed some of the categorical sections on the upper end like not weighed at birth, dont know, or missing. Additionally, I chose to adhere to UNICEF’s validity threshold: 250g <= birthweight <=5,500g for a more realistic analysis. I also chose to keep variables like time pregnant and age numeric because that makes sense given what I am interested in exploring. Binary variables like whether or not someone took antiparasitics) were limited to only response values, as I am not interested in those who couldnt answer the question. This leaves us with a hefty 153,582 observations for analysis. 
 
 ```{r}
 dhs_clean <- dhs %>% 
-  select(m60_1, v481, m18_1, m19_1, m17_1, v214, v457, m15_1, v228, v208, v190a, v190, v149, v131, v024, v463aa, v501, v214, v447a) %>% 
+  select(m60_1, v481, m18_1, m19_1, m17_1, v457, m15_1, v228, v208, v190a, v190, v149, v131, v024, v463aa, v501, v447a) %>% 
   rename(
     paradrug = m60_1,
     insured = v481,
     sizechild = m18_1,
     bwkg = m19_1,
     csect = m17_1,
-    duration = v214,
     anemia = v457,
     delivplace = m15_1,
     termpreg = v228,
@@ -47,7 +48,6 @@ dhs_clean <- dhs %>%
     state = v024,
     smokes = v463aa,
     married = v501,
-    cur_preg_dur = v214,
     age = v447a,
   ) %>% 
   filter(
@@ -71,12 +71,50 @@ dhs_clean <- dhs %>%
   ) %>% 
   mutate(
     paradrug = as.factor(paradrug),
+    insured = as.factor(insured),
+    sizechild = factor(sizechild,
+                          levels = c("very large" = "1",
+                                     "larger than average" = "2",
+                                     "average" = "3",
+                                     "smaller than average" = "4",
+                                     "very small" = "5")),
+    csect = factor(csect),
+    anemia = factor(anemia,
+                    levels = c("severe" = "1",
+                               "moderate" = "2",
+                               "mild" = "3",
+                               "not anemic" = "4")),
+    delivplace = factor(delivplace),
+    termpreg = factor(termpreg),
+    bpast5 = factor(bpast5),
+    wind = factor(wind, 
+                  levels = c("poorest" = "1",
+                             "poorer" = "2",
+                             "middle" = "3",
+                             "richer" = "4",
+                             "richest" = "5")),
+    educ = factor(educ,
+                  levels = c("none" = "0", 
+                             "incomplete primary" = "1",
+                             "complete primary" = "2",
+                             "incomplete secondary" = "3", 
+                             "complete secondary" = "4",
+                             "higher" = "5")),
+    ethnic = factor(ethnic,
+                    levels = c("caste" = "991",
+                               "tribe" = "992",
+                               "no caste/tribe" = "993",
+                               "dont know" = "998")),
+    smokes = factor(smokes)
   )
 ```
 
 ## 2) Missing data report
-```{r}
 
+According to a missing data summary, there are no missing observations within the cleaned dataset. After removing "dont know" values from majority of the variables of interest (due to their being irrelevent) we no longer have any data that are not available and a final cleaned dataset of 153582 observations.
+```{r}
+miss_var_summary(dhs_clean) %>% 
+  arrange(desc(pct_miss))
 ```
 
 ## 3) Concept map
@@ -85,15 +123,93 @@ dhs_clean <- dhs %>%
 ## 4) Summary table of characteristics
 
 ```{r}
+library(dplyr)
+library(tidyr)
+library(gt)
+
+# categorical summary
+cat_summary <- dhs_clean %>%
+  select(paradrug, insured, educ) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "category") %>%
+  group_by(variable) %>%
+  mutate(total = n()) %>%
+  group_by(variable, category) %>%
+  summarise(
+    count = n(),
+    percent = paste0(round(100 * count / first(total), 1), "%"),
+    .groups = "drop"
+  ) %>%
+  arrange(variable, category) %>%
+  group_by(variable) %>%
+  mutate(row_id = row_number()) %>%
+  ungroup()
+
+# summary for numerical variables 
+num_summary <- dhs_clean %>%
+  summarise(across(c(age, bwkg),
+    list(mean = ~round(mean(., na.rm = TRUE), 2),
+         median = ~round(median(., na.rm = TRUE), 2),
+         sd = ~round(sd(., na.rm = TRUE), 2)),
+    .names = "{.col}_{.fn}")) %>%
+  pivot_longer(everything(), names_to = c("variable", "statistic"), names_sep = "_") %>%
+  pivot_wider(names_from = statistic, values_from = value) %>%
+  mutate(row_id = 1)
+
+# merge and gt table
+bind_rows(
+  cat_summary,
+  num_summary %>% mutate(category = NA, count = NA, percent = NA)
+) %>%
+  arrange(factor(variable, levels = c("paradrug", "insured", "educ", "age", "bwkg"))) %>%
+  gt(groupname_col = "variable") %>%
+  tab_header(
+    title = "Summary Statistics for DHS Dataset",
+  ) %>%
+  cols_label(
+    category = "Category",
+    count = "Count",
+    percent = "Percentage",
+    mean = "Mean",
+    median = "Median",
+    sd = "Std Dev"
+  ) %>%
+  fmt_number(
+    columns = c(mean, median, sd),
+    decimals = 2
+  ) %>%
+  cols_align(
+    align = "center",
+    columns = c(category, count, percent, mean, median, sd)
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "#C5DECD"),
+    locations = cells_body(
+      rows = variable %in% c("paradrug", "insured", "educ")
+    )
+  ) %>%
+  fmt_missing(columns = everything(), missing_text = "-") %>%
+  cols_hide(columns = c(row_id))%>%
+  tab_options(table.background.color = "#F1F7ED")
 
 ```
 
 ## 5) Graphical representation of characteristics
 
 ```{r}
-ggplot(data = dhs_clean, mapping = aes(x = sizechild, fill = paradrug)) +
-  geom_bar()
+ggplot(data = dhs_clean, mapping = aes(y = insured, x = bwkg, fill = paradrug)) +
+  geom_boxplot() +
+  theme_economist() +
+  scale_fill_manual(values = c("#D4C5E2", "#80CFA9")) +
+  labs(title = "Birthweight (kg) by Antiparasitics and Insured Status", 
+       y = "Insurance Status", 
+       x = "Birth Weight (kg)", 
+       fill = "Antiparasitics While Pregnant")
+
 ```
 
 ## 6) Summary and interpretation of characteristics
-
+Based on the characteristics obseved in the table and graphic, a few things stand out. To start, given the fact that the core questions involves antiparasitic drug use, its important to point out that majority of people to not use antiparasitics during pregnancy. Additionally, less than 30% of people have some form of health insurance which may act as a major confounder when trying to predict birth weight. Majority of people surveyed have completed primary school (around 52.2%) but only 2% have some form of higher education. As for age, most of those who participated in the survey were in their late 20s, with a median age of 27 (SD of 5.12). The median birth weight was 2900g, which is less than the international average of roughly 3300g. Based on the graphic, it is evident that on average, children born to mothers who received antiparasitics during pregnancy weighed less at birth than those of mothers who did not. There is also a much larger interquartile range of birthweights for children born to mothers who were insured but did not receive antiparasitics during pregnancy than any other combined category. The Lowest average birth weights were among children born to mothers who were both insured and received antiparasitics during pregnancy. It is possible that due to the large discrepancy between number of insured vs uninsured, this relationship is due to noise, but it is interesting nonetheless. Overall, the spread is relatively consistent across categories.
