@@ -1,0 +1,180 @@
+---
+title: "DHS analysis: Variable Selection"
+author: "Paul Hsu"
+date: "3/27/2025"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE,warning=FALSE)
+```
+
+```{r}
+#import data and then manage the data a bit
+library(readr) #package for importing data into R
+library(tidyverse)
+library(olsrr) #package for variable selection
+library(glmnet) #package for LASSO
+library(knitr) #package for generating tables
+library(haven)
+library(gtsummary)
+library(knitr)
+library(caret)
+library(pROC)
+library(MASS)
+
+dhs=read_csv("IAIR7EFL.csv")
+#View(dhs)
+#generate a subset of the data
+dhs.s=subset(dhs,select=c(v012,v155,v171a,v201,v437,v438,v445))
+rm(dhs) #delete dhs data frame from memory
+#relabel variables
+dhs.s$age=dhs.s$v012
+dhs.s$older=(dhs.s$age>30)+0
+dhs.s$older=factor(dhs.s$older,levels=c(0,1),labels = c("<=30 yo","> 30 yo"))
+dhs.s$literacy=dhs.s$v155
+#level needs to match the data
+dhs.s$literacy=factor(dhs.s$literacy,
+                      levels=seq(0,4),
+                      labels=c("Cannot read at all",
+                               "Able to read only parts of sentence",
+                               "Able to read whole sentence",
+                               "No card with required language",
+                               "Blind/visually impaired"))
+dhs.s$internet.use=(dhs.s$v171a==3)+0
+dhs.s$children.born=dhs.s$v201
+dhs.s$wt.kg=dhs.s$v437/10
+#code missing/unknown as NA
+dhs.s$wt.kg[dhs.s$v437>2000]=NA
+dhs.s$ht.m=dhs.s$v438/1000
+dhs.s$ht.m[dhs.s$v438>2500]=NA
+dhs.s$bmi=dhs.s$v445/100
+dhs.s$bmi[dhs.s$v445>6000]=NA
+#dataset for variable selection: need to remove missing data in order to perform LASSO
+dhs.ss=na.omit(subset(dhs.s,select=c(bmi,age,literacy,internet.use,children.born)))
+```
+
+# Introduction
+In this report, variable selection methods will be performed to select variables predictive of BMI/Internet use.
+
+
+\newpage
+# BMI: Variable selection via linear Regression
+# Table 1: All Possible models
+```{r}
+model=lm(bmi ~age+literacy+internet.use+children.born, data = dhs.ss)
+ols_step_all_possible(model)
+```
+
+\newpage
+# Table 2: Best subsets
+```{r}
+ols_step_best_subset(model)
+```
+
+\newpage
+# Table 3: Forward selection
+```{r}
+ols_step_forward_p(model)
+```
+
+\newpage
+# Table 4: Backward selection
+```{r}
+ols_step_backward_p(model)
+```
+
+\newpage
+# Table 5: Stepwise selection
+```{r}
+ols_step_both_p(model)
+```
+
+\newpage 
+# Figure 1: Visulization
+```{r}
+k=ols_step_forward_adj_r2(model)
+plot(k)
+```
+
+\newpage
+# Figure 2: LASSO cross-validation
+```{r}
+y=dhs.ss$bmi
+x=as.matrix(dhs.ss[,-1])
+fit=cv.glmnet(x=x,y=y,alpha=1,nfolds = 5)
+plot(fit)
+#lambda with smallest MSE
+fit$lambda.min
+#lambda with 1 SE above the lambda with smallest MSE
+fit$lambda.1se
+```
+
+\newpage
+# Table 5: LASSO results
+```{r}
+#find optimal lambda value that minimizes test MSE
+best_lambda=fit$lambda.min
+best_lambda
+#extract coefficients for a lambda equal to best lambda
+c=coef(fit,s = best_lambda) 
+#print outcoefficients not equal to 0
+inds=which(c!=0) 
+c[inds,]
+```
+
+\newpage
+# Internet use: Variable selection via logistic regression
+# Table 1: Full model
+```{r}
+full.model=glm(internet.use ~bmi+age+literacy+children.born, family=binomial(), data = dhs.ss)
+summary(full.model)
+```
+
+\newpage
+# Table 2: Forward selection
+```{r}
+forward.model=stepAIC(full.model, direction = "forward", trace = FALSE)
+coef(forward.model)
+```
+
+\newpage
+# Table 3: Backward selection
+```{r}
+backward.model=stepAIC(full.model, direction = "backward", trace = FALSE)
+coef(backward.model)
+```
+
+\newpage
+# Table 4: Stepwise selection
+```{r}
+step.model=stepAIC(full.model, direction = "both", trace = FALSE)
+coef(step.model)
+```
+
+\newpage
+# Figure 1: LASSO cross-validation
+```{r}
+y=dhs.ss$internet.use
+x=as.matrix(dhs.ss[,-4])
+fit=cv.glmnet(x=x,y=y,alpha=1,nfolds = 5)
+plot(fit)
+#lambda with smallest MSE
+fit$lambda.min
+#lambda with 1 SE above the lambda with smallest MSE
+fit$lambda.1se
+```
+
+\newpage
+# Table 5: LASSO results
+```{r}
+#find optimal lambda value that minimizes test MSE
+best_lambda=fit$lambda.min
+best_lambda
+#extract coefficients for a lambda equal to best lambda
+c=coef(fit,s = best_lambda) 
+#print outcoefficients not equal to 0
+inds=which(c!=0) 
+c[inds,]
+```
+
