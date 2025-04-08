@@ -1,0 +1,95 @@
+---
+title: "Analysis of India DHS Data accounting for sampling weight"
+author: "Paul Hsu"
+date: "4/1/2025"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message=FALSE,warning = FALSE)
+```
+```{r}
+install.packages("jtools")
+install.packages("svrep")
+install.packages("Hmisc")
+library(haven)
+library("survey")
+library("jtools")
+library("remotes")
+library("svrep")
+library(gtsummary)
+library(tidyverse)
+library(knitr)
+library(readr)
+library(foreign)
+library(plyr)
+library(Hmisc)
+
+dhs=read_csv("IAIR7EFL.csv")
+#View(dhs)
+#generate a subset of the data
+dhs.s=subset(dhs,select=c(caseid,v001,v005,v021,v023,v024,v012,v155,v171a,v201,v437,v438,v445))
+rm(dhs) #delete dhs data frame from memory
+#relabel variables
+dhs.s$womenwt=dhs.s$v005/1000000
+dhs.s$psu=dhs.s$v021
+dhs.s$strata=dhs.s$v023
+dhs.s$age=dhs.s$v012
+dhs.s$older=(dhs.s$age>30)+0
+dhs.s$older=factor(dhs.s$older,levels=c(0,1),labels = c("<=30 yo","> 30 yo"))
+dhs.s$literacy=dhs.s$v155
+#level needs to match the data
+dhs.s$literacy=factor(dhs.s$literacy,
+                      levels=seq(0,4),
+                      labels=c("Cannot read at all",
+                               "Able to read only parts of sentence",
+                               "Able to read whole sentence",
+                               "No card with required language",
+                               "Blind/visually impaired"))
+dhs.s$internet.use=(dhs.s$v171a==3)+0
+dhs.s$children.born=dhs.s$v201
+dhs.s$wt.kg=dhs.s$v437/10
+#code missing/unknown as NA
+dhs.s$wt.kg[dhs.s$v437>2000]=NA
+dhs.s$ht.m=dhs.s$v438/1000
+dhs.s$ht.m[dhs.s$v438>2500]=NA
+dhs.s$bmi=dhs.s$v445/100
+dhs.s$bmi[dhs.s$v445>6000]=NA
+```
+
+# Introduction
+Before we can start our analyses, we need to use the svydesign function from the “survey” package written by Thomas Lumley. The svydesign function tells R about the design elements in the survey. Once this command has been issued, all you need to do for your analyses is use the object that contains this information in each command. 
+
+
+# Summary of participant characteristics 
+```{r}
+#specify the survey design before performing statistical analysis
+dhs.d=svydesign(id=dhs.s$caseid, weights=dhs.s$womenwt,strata=dhs.s$strata, data=dhs.s)
+#mean age (SD) without accounting for sampling weight
+c(mean(dhs.s$age),sd(dhs.s$age))
+
+#mean age (SD) accounting for sampling weight
+c(wtd.mean(dhs.s$age,dhs.s$womenwt),wtd.var(dhs.s$age,dhs.s$womenwt)^0.5)
+
+#% of internet use without accounting for sampling weight
+mean(dhs.s$internet.use,na.rm=TRUE)
+
+#% of internet use accounting for sampling weight
+wtd.mean(dhs.s$internet.use,dhs.s$womenwt,na.rm=TRUE)
+```
+
+# Weighted Linear Regression
+```{r}
+MLR=lm(bmi ~ age+literacy+internet.use+children.born,weights=womenwt, data = dhs.s)
+summary(MLR)
+```
+
+# Weighted Logistic Regression
+```{r}
+fit=glm(internet.use~age+literacy+children.born,family=binomial(link="logit"),weights=womenwt,data=dhs.s)
+logit.adj=summary(fit)$coefficients
+OR.adj=round(cbind(exp(logit.adj[,1]),exp(logit.adj[,1]-1.96*logit.adj[,2]),exp(logit.adj[,1]+1.96*logit.adj[,2]),logit.adj[,4]),3)
+colnames(OR.adj)=c("adj OR","Lower 95% CI","Upper 95% CI","p.value")
+OR.adj[2,]
+```
+

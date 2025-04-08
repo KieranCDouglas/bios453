@@ -16,6 +16,7 @@ Installing important packages for the project and downloading the dataset
 
 ```{r}
 library(tidyverse)
+library(srvyr)
 library(gt)
 library(tinytex)
 library(naniar)
@@ -29,12 +30,15 @@ dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
 
 ## Description of data management utilized and cleaning
 
-As part of the data management process fo this project, I significantly reduced its size to include only variables that I believe are relevant for my research question. This includes all of the relevant variables, in addition to each confounder listed in my concept map (both primary and secondary). Once I had each of these variables selected, In went through and ensured that they were all formatted correctly for the types of regression I wanted to run during my analysis. I also made sure that certain items were filtered out. For example, some continuous reportings like birth weight in kg clearly contained severe misinputs. Since I am also only concerned with it as a numerical variable, I removed some of the categorical sections on the upper end like not weighed at birth, dont know, or missing. Additionally, I chose to adhere to UNICEF’s validity threshold: 250g <= birthweight <=5,500g for a more realistic analysis. I also chose to keep variables like time pregnant and age numeric because that makes sense given what I am interested in exploring. Binary variables like whether or not someone took antiparasitics) were limited to only response values, as I am not interested in those who couldnt answer the question. This leaves us with a hefty 153,582 observations for analysis. 
+As part of the data management process fo this project, I significantly reduced its size to include only variables that I believe are relevant for my research question. This includes all of the relevant variables, in addition to each confounder listed in my concept map (both primary and secondary). Once I had each of these variables selected, In went through and ensured that they were all formatted correctly for the types of regression I wanted to run during my analysis. I also made sure that certain items were filtered out. For example, some continuous reportings like birth weight in kg clearly contained severe misinputs. Since I am also only concerned with it as a numerical variable, I removed some of the categorical sections on the upper end like not weighed at birth, dont know, or missing. Additionally, I chose to adhere to UNICEF’s validity threshold: 250g <= birthweight <=5,500g for a more realistic analysis. I also chose to keep variables like time pregnant and age numeric because that makes sense given what I am interested in exploring. Binary variables like whether or not someone took antiparasitics) were limited to only response values, as I am not interested in those who couldnt answer the question. This leaves us with a hefty 153,582 observations for analysis. Finally, I included a scaled weight column for womens sample weights due to the neture of my analysis (centering around womens reproductive health). I scaled it by 1,000,000 because DHS weights are stored as six digit strings, and scaling is necesary to prevent serious distortions, getting the weights into their correct format.
 
 ```{r}
 dhs_clean <- dhs %>% 
-  select(m60_1, v481, m18_1, m19_1, m17_1, v457, m15_1, v228, v208, v190a, v190, v149, v131, v024, v463aa, v501, v447a) %>% 
+  select(v005, m60_1, v481, m18_1, m19_1, m17_1, v457, m15_1, v228, v208, v190a, v190, v149, v131, v024, v463aa, v501, v447a, v021, v023) %>% 
   rename(
+    ids = v021,
+    strata = v023,
+    wsweight = v005,
     paradrug = m60_1,
     insured = v481,
     sizechild = m18_1,
@@ -73,6 +77,7 @@ dhs_clean <- dhs %>%
     age != 99,
   ) %>% 
   mutate(
+    wsweight = wsweight/1000000,
     paradrug = as.factor(paradrug),
     insured = as.factor(insured),
     sizechild = factor(sizechild,
@@ -203,6 +208,7 @@ bind_rows(
 ## Graphical representation of characteristics
 
 ```{r}
+# boxplot comparing birthweights by antiparasitic use and insurance status
 ggplot(data = dhs_clean, mapping = aes(y = insured, x = bwkg, fill = paradrug)) +
   geom_boxplot() +
   theme_economist() +
@@ -212,9 +218,19 @@ ggplot(data = dhs_clean, mapping = aes(y = insured, x = bwkg, fill = paradrug)) 
        x = "Birth Weight (kg)", 
        fill = "Antiparasitics While Pregnant")
 
-ggplot(data = dhs_clean, mapping = aes(x = bwkg, fill = anemia)) +
+# make labels for facetwrap 
+paradrug_labels <- c("0" = "No Antiparasitics", "1" = "Yes Antiparasitics")
+
+# barplot comparing birthweight by anemia status and antiparasitic use 
+ggplot(dhs_clean, aes(x = bwkg, fill = factor(anemia))) +
   geom_histogram() +
-  facet_wrap(~paradrug)
+  facet_wrap(~paradrug, labeller = as_labeller(paradrug_labels)) +
+  scale_fill_manual(
+    values = c("#46B29B", "#80CFA9", "#D4C5E2", "#CF80A6"),
+    name = "Anemia Status") +
+  labs( title = "Birthweight by Anemia Status and Antiparasitic Use During Pregnancy", x = "Birth Weight (kg)", y = "Count") +
+  theme_few()
+
 
 ```
 
@@ -254,27 +270,69 @@ coef(lasso_model, s = "lambda.1se")
 ## Regressions and interpretation
 
 ```{r}
-## Run main regression. Included interraction terms for age*paradrug and educ*bpast5 due to suspected interractions between them and their effect on bwkg, both contain statistically significant outputs. I should include the second interraction term because it's theoretically meaningful (e.g., if it makes sense that the effect of paradrug would vary by age or another variable)
-coremodel <- lm(data = dhs_clean, bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia+age*paradrug+educ*bpast5)
-summary(coremodel)
+## several single stratas, merge singles for comparison
+# Count PSUs per stratum
+psu_counts <- dhs_clean %>%
+  group_by(strata) %>%
+  summarize(n_psu = n_distinct(ids))  # Replace 'ids' with your PSU variable name
 
+# List strata with 1 PSU
+single_strata <- psu_counts %>% filter(n_psu == 1)
+print(single_strata)
+
+single_strata <- c(1023, 3241, 3261, 57221, 57222, 62921, 83823, 84022, 84122, 84223, 84421, 84621, 84622, 84723, 89823)
+
+#mutate
+dhs_clean <- dhs_clean %>%
+  mutate(
+    strata = ifelse(strata %in% single_strata, 1024, strata)
+  )
+
+## Weighting and survey design specification
+sdesign <- as_survey_design(
+  .data = dhs_clean,
+  ids = ids,
+  strata = strata,
+  weights = wsweight
+)
+## Run main regression. Included interraction terms for age*paradrug and educ*bpast5 due to suspected interractions between them and their effect on bwkg, both contain statistically significant outputs. I should include the second interraction term because it's theoretically meaningful (e.g., if it makes sense that the effect of paradrug would vary by age or another variable). This core model is weighted. 
+unrefined_coremodel <- sdesign %>% 
+  svyglm(
+    formula = bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia+anemia*paradrug+educ*bpast5,
+    family = gaussian())
+summary(unrefined_coremodel)
+
+## Refined core model
+coremodel <- sdesign %>% 
+  svyglm(
+    formula = bwkg ~ paradrug + age + ethnic + educ + 
+                bpast5 + csect + anemia + educ*bpast5,
+    family = gaussian()
+  )
+summary(coremodel)
+## Unweighted coremodel
+coremodelunw <- lm(data = dhs_clean, bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia+educ*bpast5)
+summary(coremodelunw)
 ```
 
 ## Residual analysis, multicolinearity, and validation
 
 ```{r}
 ## Check for multicolinearity among predictors.
-vif_values <- vif(coremodel, type = 'predictor')
-print(vif_values)
-##VIF <5 so not much multicolinearity
 
 ## Check other MLR assumptions
-plot(coremodel, which = 1)
+ggplot(data.frame(residuals = residuals), aes(sample = residuals)) +
+  stat_qq(color = "blue") +
+  stat_qq_line(color = "red", size = 1) +
+  theme_minimal() +
+  labs(x = "Theoretical quantiles", y = "Ordered Values", 
+       title = "Normal Q-Q Plot of Residuals")
 
-plot(coremodel, which = 2)  # Q-Q plot
 ## The residuals generally follow the diagonal line, suggesting that the residuals are approximately normally distributed.However, there is some deviation at the tails (both ends of the plot), which could indicate slight non-normality.This could be related to the large sample size.With very large datasets, the Central Limit Theorem ensures that your coefficient estimates are approximately normally distributed even if residuals aren't perfectly normal
-durbinWatsonTest(coremodel)  # Perform Durbin-Watson test
-## D-W Statistic = 1.879: This value is reasonably close to 2 (which indicates no autocorrelation), suggesting a mild positive autocorrelation in your residuals.
+
+# Perform Durbin-Watson test
+durbinWatsonTest(coremodel)
+## D-W Statistic = 1.9199: This value is reasonably close to 2 (which indicates no autocorrelation), suggesting a mild positive autocorrelation in your residuals.
 
 ## Validation K-Fold
 # Define cross-validation method
@@ -288,9 +346,10 @@ model_cv <- train(
   method = "lm",
   trControl = ctrl
 )
-
 # View average RMSE and R² across folds
 print(model_cv$results)
 
+# Extract residuals from your svyglm model
+residuals <- residuals(coremodel)
 ```
 The validation results suggest poor model preformance across the board.An RMSE (Root Mean Squared Error, A measure of the average distance between predicted and actual values. Lower values indicate better fit) of ~549 kg means that the models predictions are super inacurate. The R2 of 1.9% indicated that paradrug and other predictors have very minimal explanatory power for bwkg. Low standard deviations (SD) in RMSE/R² across folds indicate the model isn’t overfitting, but it’s consistently underperforming.
