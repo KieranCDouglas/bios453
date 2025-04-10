@@ -1,7 +1,7 @@
 ---
-title: "Milestone 4"
+title: "Milestone"
 output: pdf_document
-date: "2025-03-06"
+date: "2025-04-09"
 name: "Kieran Douglas"
 ---
 # Setup
@@ -15,6 +15,7 @@ options(repos = c(CRAN = "https://cloud.r-project.org"))
 Installing important packages for the project and downloading the dataset
 
 ```{r}
+install.packages("survey")
 library(tidyverse)
 library(srvyr)
 library(gt)
@@ -24,6 +25,10 @@ library(ggthemes)
 library(glmnet)
 library(olsrr)
 library(car)
+library(survey)
+library(gt)
+library(tidyr)
+library(caret)
 dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
 
 ```
@@ -131,10 +136,6 @@ miss_var_summary(dhs_clean) %>%
 ## Summary table of characteristics
 
 ```{r}
-library(dplyr)
-library(tidyr)
-library(gt)
-
 # categorical summary
 cat_summary <- dhs_clean %>%
   select(paradrug, insured, educ) %>%
@@ -263,14 +264,26 @@ coef(lasso_model, s = "lambda.min")
 # Coefficients at lambda.1se (simpler model)
 coef(lasso_model, s = "lambda.1se")
 
-## Predictors with non-zero coefficients are deemed important for explaining bwkg. It appears as though paradrug is not... We will include those relavent variables in the regression. 
+## Predictors with non-zero coefficients are deemed important for explaining bwkg. It appears as though paradrug is not... We will include those relavent variables in the regression.
 
+## Check for multicolinearity 
+vifmod <- lm(data = dhs_clean, bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia)
+vif_values <- vif(vifmod)  # Calculate VIF values
+print(vif_values)         # Display VIF values
+## VIF are all aprox =1 implying low to no nulticolinearity
 ```
 
 ## Regressions and interpretation
 
 ```{r}
 ## several single stratas, merge singles for comparison
+options(survey.lonely.psu = "adjust")  
+
+single_strata <- c(1023, 3241, 3261, 57221, 57222, 62921, 83823, 84022, 84122, 84223, 84421, 84621, 84622, 84723, 89823, 83723)  
+
+dhs_clean <- dhs_clean %>%
+  mutate(strata = ifelse(strata %in% single_strata, 1024, strata))
+
 # Count PSUs per stratum
 psu_counts <- dhs_clean %>%
   group_by(strata) %>%
@@ -313,30 +326,57 @@ summary(coremodel)
 ## Unweighted coremodel
 coremodelunw <- lm(data = dhs_clean, bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia+educ*bpast5)
 summary(coremodelunw)
+
+## Finding $R^2$ 
+weighted_r2 <- function(model) {
+  y <- model.response(model.frame(model))  
+  w <- weights(model, type = "prior")      
+  pred <- predict(model)
+  
+  # NA handling 
+  valid <- complete.cases(y, pred, w)
+  y <- y[valid]
+  pred <- pred[valid]
+  w <- w[valid]
+  
+  ss_res <- sum(w * (y - pred)^2)
+  ss_tot <- sum(w * (y - weighted.mean(y, w))^2)
+  
+  1 - (ss_res / ss_tot)
+}
+
+# Usage with survey model
+coremodel <- svyglm(bwkg ~ paradrug + age, 
+                   design = sdesign,
+                   family = gaussian())
+
+weighted_r2(coremodel)  
+## This implies that the variabce observed in the model can only explain about 0.22% of that observed in the population
 ```
 
 ## Residual analysis, multicolinearity, and validation
 
 ```{r}
-## Check for multicolinearity among predictors.
-
-## Check other MLR assumptions
+## Q-Q plot for normality.
+# Extract residuals from your svyglm model
+residuals <- residuals(coremodel)
+#plot
 ggplot(data.frame(residuals = residuals), aes(sample = residuals)) +
-  stat_qq(color = "blue") +
-  stat_qq_line(color = "red", size = 1) +
+  stat_qq(color = "#80CFA9") +
+  stat_qq_line(color = "#CF80A6", size = 1) +
   theme_minimal() +
   labs(x = "Theoretical quantiles", y = "Ordered Values", 
-       title = "Normal Q-Q Plot of Residuals")
+       title = "Normal Q-Q Plot of Residuals") +
+  theme_economist()
 
 ## The residuals generally follow the diagonal line, suggesting that the residuals are approximately normally distributed.However, there is some deviation at the tails (both ends of the plot), which could indicate slight non-normality.This could be related to the large sample size.With very large datasets, the Central Limit Theorem ensures that your coefficient estimates are approximately normally distributed even if residuals aren't perfectly normal
 
 # Perform Durbin-Watson test
 durbinWatsonTest(coremodel)
-## D-W Statistic = 1.9199: This value is reasonably close to 2 (which indicates no autocorrelation), suggesting a mild positive autocorrelation in your residuals.
+## D-W Statistic = 1.914134: This value is reasonably close to 2 (which indicates no autocorrelation), suggesting a mild positive autocorrelation in your residuals.
 
 ## Validation K-Fold
 # Define cross-validation method
-library(caret)
 ctrl <- trainControl(method = "cv", number = 5)
 
 # Train model with k-fold CV
@@ -348,8 +388,5 @@ model_cv <- train(
 )
 # View average RMSE and R² across folds
 print(model_cv$results)
-
-# Extract residuals from your svyglm model
-residuals <- residuals(coremodel)
 ```
-The validation results suggest poor model preformance across the board.An RMSE (Root Mean Squared Error, A measure of the average distance between predicted and actual values. Lower values indicate better fit) of ~549 kg means that the models predictions are super inacurate. The R2 of 1.9% indicated that paradrug and other predictors have very minimal explanatory power for bwkg. Low standard deviations (SD) in RMSE/R² across folds indicate the model isn’t overfitting, but it’s consistently underperforming.
+The validation results suggest poor model preformance across the board.An RMSE (Root Mean Squared Error, A measure of the average distance between predicted and actual values. Lower values indicate better fit) of ~548.7 kg means that the models predictions are super inacurate. The R2 of 0.22% indicated that paradrug and other predictors have very minimal explanatory power for bwkg. Low standard deviations (SD) in RMSE/R² across folds indicate the model isn’t overfitting, but it’s consistently underperforming.
