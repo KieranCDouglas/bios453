@@ -1,5 +1,5 @@
 ---
-title: "Milestone"
+title: "Antiparasitic Drugs and Birth Weight"
 output: pdf_document
 date: "2025-04-09"
 name: "Kieran Douglas"
@@ -15,7 +15,6 @@ options(repos = c(CRAN = "https://cloud.r-project.org"))
 Installing important packages for the project and downloading the dataset
 
 ```{r}
-install.packages("survey")
 library(tidyverse)
 library(srvyr)
 library(gt)
@@ -29,6 +28,8 @@ library(survey)
 library(gt)
 library(tidyr)
 library(caret)
+library(qqplotr)
+
 dhs <- read_csv("~/Documents/GitHub/bios/453/bios453/IAIR7EFL.csv")
 
 ```
@@ -47,7 +48,7 @@ dhs_clean <- dhs %>%
     paradrug = m60_1,
     insured = v481,
     sizechild = m18_1,
-    bwkg = m19_1,
+    bwg = m19_1,
     csect = m17_1,
     anemia = v457,
     delivplace = m15_1,
@@ -65,11 +66,11 @@ dhs_clean <- dhs %>%
   filter(
     paradrug!=8,
     paradrug!=9,
-    bwkg <5501,
-    bwkg > 249,
-    bwkg != 9996,
-    bwkg != 9998,
-    bwkg != 9999,
+    bwg <5501,
+    bwg > 249,
+    bwg != 9996,
+    bwg != 9998,
+    bwg != 9999,
     sizechild!=8,
     insured != 9,
     sizechild != 9,
@@ -155,7 +156,7 @@ cat_summary <- dhs_clean %>%
 
 # summary for numerical variables 
 num_summary <- dhs_clean %>%
-  summarise(across(c(age, bwkg),
+  summarise(across(c(age, bwg),
     list(mean = ~round(mean(., na.rm = TRUE), 2),
          median = ~round(median(., na.rm = TRUE), 2),
          sd = ~round(sd(., na.rm = TRUE), 2)),
@@ -169,7 +170,7 @@ bind_rows(
   cat_summary,
   num_summary %>% mutate(category = NA, count = NA, percent = NA)
 ) %>%
-  arrange(factor(variable, levels = c("paradrug", "insured", "educ", "age", "bwkg"))) %>%
+  arrange(factor(variable, levels = c("paradrug", "insured", "educ", "age", "bwg"))) %>%
   gt(groupname_col = "variable") %>%
   tab_header(
     title = "Summary Statistics for DHS Dataset",
@@ -210,27 +211,43 @@ bind_rows(
 
 ```{r}
 # boxplot comparing birthweights by antiparasitic use and insurance status
-ggplot(data = dhs_clean, mapping = aes(y = insured, x = bwkg, fill = paradrug)) +
+ggplot(data = dhs_clean, mapping = aes(y = insured, x = bwg, fill = paradrug)) +
   geom_boxplot() +
   theme_economist() +
   scale_fill_manual(values = c("#D4C5E2", "#80CFA9")) +
-  labs(title = "Birthweight (kg) by Antiparasitics and Insured Status", 
+  labs(title = "Birthweight (g) by Antiparasitics and Insured Status", 
        y = "Insurance Status", 
-       x = "Birth Weight (kg)", 
+       x = "Birth Weight (g)", 
        fill = "Antiparasitics While Pregnant")
 
 # make labels for facetwrap 
 paradrug_labels <- c("0" = "No Antiparasitics", "1" = "Yes Antiparasitics")
 
 # barplot comparing birthweight by anemia status and antiparasitic use 
-ggplot(dhs_clean, aes(x = bwkg, fill = factor(anemia))) +
-  geom_histogram() +
+ggplot(dhs_clean, aes(x = bwg, fill = factor(anemia))) +
+  geom_histogram(aes(y=after_stat(count/sum(count))),
+                 position = "dodge",
+                 binwidth = 500) +
   facet_wrap(~paradrug, labeller = as_labeller(paradrug_labels)) +
   scale_fill_manual(
     values = c("#46B29B", "#80CFA9", "#D4C5E2", "#CF80A6"),
     name = "Anemia Status") +
-  labs( title = "Birthweight by Anemia Status and Antiparasitic Use During Pregnancy", x = "Birth Weight (kg)", y = "Count") +
-  theme_few()
+  labs( title = "Birthweight by Anemia Status and Antiparasitic Use During Pregnancy", x = "Birth Weight (g)", y = "Proportion") +
+  theme_few() +
+  scale_y_continuous(labels = scales::percent) +
+  geom_vline(
+    xintercept = 2500,
+    linetype = "dashed",
+    size = .25,
+  ) +
+  annotate(
+    "text",
+    x = 2350, y = .09,  # Label position
+    label = "Low Birthweight Threshold", 
+    angle = 90, 
+    color = "black",
+    size = 2
+  )
 
 
 ```
@@ -243,13 +260,13 @@ Based on the characteristics obseved in the table and graphic, a few things stan
 ```{r}
 ## LASSO
 # Create predictor matrix (exclude intercept and outcome variable)
-x <- model.matrix(bwkg ~ paradrug + insured + csect + anemia + delivplace + 
+x <- model.matrix(bwg ~ paradrug + insured + csect + anemia + delivplace + 
                   termpreg + bpast5 + wind_urbrur + wind + educ + ethnic + 
                   state + smokes + married + age, 
                 data = dhs_clean)[, -1]  # Remove intercept column
 
 # Outcome variable
-y <- dhs_clean$bwkg
+y <- dhs_clean$bwg
 
 # Cross-validate to find optimal lambda (penalty parameter)
 set.seed(123)  # For reproducibility
@@ -267,7 +284,7 @@ coef(lasso_model, s = "lambda.1se")
 ## Predictors with non-zero coefficients are deemed important for explaining bwkg. It appears as though paradrug is not... We will include those relavent variables in the regression.
 
 ## Check for multicolinearity 
-vifmod <- lm(data = dhs_clean, bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia)
+vifmod <- lm(data = dhs_clean, bwg~paradrug+age+ethnic+educ+bpast5+csect+anemia)
 vif_values <- vif(vifmod)  # Calculate VIF values
 print(vif_values)         # Display VIF values
 ## VIF are all aprox =1 implying low to no nulticolinearity
@@ -311,20 +328,27 @@ sdesign <- as_survey_design(
 ## Run main regression. Included interraction terms for age*paradrug and educ*bpast5 due to suspected interractions between them and their effect on bwkg, both contain statistically significant outputs. I should include the second interraction term because it's theoretically meaningful (e.g., if it makes sense that the effect of paradrug would vary by age or another variable). This core model is weighted. 
 unrefined_coremodel <- sdesign %>% 
   svyglm(
-    formula = bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia+anemia*paradrug+educ*bpast5,
+    formula = bwg~paradrug+age+ethnic+educ+bpast5+csect+anemia+anemia*paradrug+educ*bpast5,
     family = gaussian())
 summary(unrefined_coremodel)
 
 ## Refined core model
 coremodel <- sdesign %>% 
   svyglm(
-    formula = bwkg ~ paradrug + age + ethnic + educ + 
+    formula = bwg ~ paradrug + age + ethnic + educ + 
                 bpast5 + csect + anemia + educ*bpast5,
     family = gaussian()
   )
 summary(coremodel)
+# Drop unused levels for all factor variables
+dhs_clean <- dhs_clean %>%
+  mutate(across(where(is.factor), droplevels))
+
+# Then recreate your survey design and model
+
+
 ## Unweighted coremodel
-coremodelunw <- lm(data = dhs_clean, bwkg~paradrug+age+ethnic+educ+bpast5+csect+anemia+educ*bpast5)
+coremodelunw <- lm(data = dhs_clean, bwg~paradrug+age+ethnic+educ+bpast5+csect+anemia+educ*bpast5)
 summary(coremodelunw)
 
 ## Finding $R^2$ 
@@ -346,7 +370,7 @@ weighted_r2 <- function(model) {
 }
 
 # Usage with survey model
-coremodel <- svyglm(bwkg ~ paradrug + age, 
+coremodel <- svyglm(bwg ~ paradrug + age, 
                    design = sdesign,
                    family = gaussian())
 
@@ -357,18 +381,15 @@ weighted_r2(coremodel)
 ## Residual analysis, multicolinearity, and validation
 
 ```{r}
-## Q-Q plot for normality.
-# Extract residuals from your svyglm model
 residuals <- residuals(coremodel)
-#plot
-ggplot(data.frame(residuals = residuals), aes(sample = residuals)) +
-  stat_qq(color = "#80CFA9") +
-  stat_qq_line(color = "#CF80A6", size = 1) +
-  theme_minimal() +
-  labs(x = "Theoretical quantiles", y = "Ordered Values", 
-       title = "Normal Q-Q Plot of Residuals") +
-  theme_economist()
 
+ggplot(data.frame(residuals = residuals), aes(sample = residuals)) +
+  stat_qq_band(distribution = "norm", alpha = 0.2, fill = "grey70") + # Adds confidence band
+  stat_qq_point(color = "#80CFA9") +
+  stat_qq_line(color = "#CF80A6", linewidth = 1) +
+  theme_minimal() +
+  labs(x = "Theoretical Quantiles", y = "Sample Quantiles", 
+       title = "Normal Q-Q Plot of Residuals with Confidence Band")
 ## The residuals generally follow the diagonal line, suggesting that the residuals are approximately normally distributed.However, there is some deviation at the tails (both ends of the plot), which could indicate slight non-normality.This could be related to the large sample size.With very large datasets, the Central Limit Theorem ensures that your coefficient estimates are approximately normally distributed even if residuals aren't perfectly normal
 
 # Perform Durbin-Watson test
@@ -381,7 +402,7 @@ ctrl <- trainControl(method = "cv", number = 5)
 
 # Train model with k-fold CV
 model_cv <- train(
-  bwkg ~ paradrug+age+ethnic+educ+bpast5+csect+anemia+age*paradrug+educ*bpast5,  # Include all predictors
+  bwg ~ paradrug+age+ethnic+educ+bpast5+csect+anemia+age*paradrug+educ*bpast5,  # Include all predictors
   data = dhs_clean,
   method = "lm",
   trControl = ctrl
